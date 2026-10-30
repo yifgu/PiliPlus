@@ -64,10 +64,7 @@ class _VideoReplyPanelState extends State<VideoReplyPanel>
     super.didChangeDependencies();
     controller.didChangeDependencies(context);
     colorScheme = ColorScheme.of(context);
-    bottom = MediaQuery.viewPaddingOf(context).bottom;
   }
-
-  late double bottom;
 
   @override
   Widget build(BuildContext context) {
@@ -124,7 +121,7 @@ class _VideoReplyPanelState extends State<VideoReplyPanel>
             child: Padding(
               padding: .only(
                 right: kFloatingActionButtonMargin,
-                bottom: kFloatingActionButtonMargin + bottom,
+                bottom: kFloatingActionButtonMargin + padding.bottom,
               ),
               child: FloatingActionButton(
                 heroTag: null,
@@ -132,8 +129,8 @@ class _VideoReplyPanelState extends State<VideoReplyPanel>
                   feedBack();
                   controller.onReply(
                     null,
-                    oid: controller.aid,
-                    replyType: controller.videoType.replyType,
+                    oid: controller.videoCtr.aid,
+                    replyType: controller.replyType,
                     mentionItem: controller.mentionItem,
                   );
                 },
@@ -191,8 +188,8 @@ class _VideoReplyPanelState extends State<VideoReplyPanel>
                   onToggleTop: (item) => controller.onToggleTop(
                     item,
                     index,
-                    controller.aid,
-                    controller.videoType.replyType,
+                    controller.videoCtr.aid,
+                    controller.replyType,
                   ),
                 );
                 if (item.id == controller.targetRootRpId) {
