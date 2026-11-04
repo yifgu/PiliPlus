@@ -206,6 +206,10 @@ internal class Media3Session(
         player?.setPlaybackSpeed(speed)
     }
 
+    fun setLocked(locked: Boolean) {
+        controls?.setLocked(locked)
+    }
+
     private fun snapshot(): Map<String, Any?> = mapOf(
         "positionMs" to positionMs,
         "durationMs" to durationMs,

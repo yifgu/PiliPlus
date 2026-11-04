@@ -108,4 +108,6 @@ class Media3Player {
       channel.invokeMethod<void>('seek', position.inMilliseconds);
   static Future<void> setSpeed(double speed) =>
       channel.invokeMethod<void>('speed', speed);
+  static Future<void> setLocked(bool locked) =>
+      channel.invokeMethod<void>('lock', locked);
 }

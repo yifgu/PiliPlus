@@ -82,6 +82,8 @@ quarters to seek (when quick double-tap is enabled). Holding the video temporari
 boosts speed; releasing or leaving the player restores it. Lock disables these
 gestures and locks orientation; tap the video to reveal Unlock. Native video-fit
 choices apply only to the current native session.
+In fullscreen, system Back first unlocks locked native controls; pressing Back
+again exits fullscreen.
 
 Position, playback state, and speed stay synchronized with PiliPlus, including
 seeks from chapter timestamps. Completion uses PiliPlus's existing repeat/next-episode

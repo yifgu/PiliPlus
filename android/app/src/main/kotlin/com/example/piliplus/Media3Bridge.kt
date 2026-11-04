@@ -5,19 +5,22 @@ import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import io.flutter.plugin.common.BinaryMessenger
+import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
 
-internal class Media3Bridge(private val activity: Activity, messenger: BinaryMessenger) {
-    private val channel = MethodChannel(messenger, "com.example.piliplus/media3")
+internal class Media3Bridge : FlutterPlugin, ActivityAware {
+    private lateinit var channel: MethodChannel
+    private var activity: Activity? = null
     private var session: Media3Session? = null
     private var container: FrameLayout? = null
 
-    val viewFactory = object : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
+    private val viewFactory = object : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
         override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
             val host = FrameLayout(context)
             container = host
@@ -33,8 +36,39 @@ internal class Media3Bridge(private val activity: Activity, messenger: BinaryMes
         }
     }
 
-    init {
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        channel = MethodChannel(binding.binaryMessenger, "com.example.piliplus/media3")
+        check(binding.platformViewRegistry.registerViewFactory(
+            "com.example.piliplus/media3_view", viewFactory,
+        )) { "Media3 platform view factory is already registered" }
         channel.setMethodCallHandler(::handle)
+    }
+
+    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        detachActivity()
+        channel.setMethodCallHandler(null)
+    }
+
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        onAttachedToActivity(binding)
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        detachActivity()
+    }
+
+    override fun onDetachedFromActivity() {
+        detachActivity()
+    }
+
+    private fun detachActivity() {
+        session?.close()
+        container = null
+        activity = null
     }
 
     private fun attach() {
@@ -49,6 +83,11 @@ internal class Media3Bridge(private val activity: Activity, messenger: BinaryMes
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "open" -> {
+                val activity = activity
+                if (activity == null) {
+                    result.error("detached", "Flutter activity is not attached", null)
+                    return
+                }
                 if (session != null) {
                     result.error("busy", "Media3 is already open", null)
                     return
@@ -84,6 +123,15 @@ internal class Media3Bridge(private val activity: Activity, messenger: BinaryMes
                 session?.play()
                 result.success(null)
             }
+            "lock" -> {
+                val locked = call.arguments
+                if (locked !is Boolean) {
+                    result.error("invalid_lock", "Invalid controls lock state", null)
+                    return
+                }
+                session?.setLocked(locked)
+                result.success(null)
+            }
             "seek" -> {
                 val position = call.arguments
                 if (position !is Number || position.toLong() < 0 ||
@@ -109,11 +157,5 @@ internal class Media3Bridge(private val activity: Activity, messenger: BinaryMes
 
     fun pause() {
         session?.pause()
-    }
-
-    fun dispose() {
-        session?.close()
-        container = null
-        channel.setMethodCallHandler(null)
     }
 }
