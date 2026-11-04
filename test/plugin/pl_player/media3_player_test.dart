@@ -193,16 +193,22 @@ void main() {
     await Media3Player.play();
     await Media3Player.seek(const Duration(seconds: 42));
     await Media3Player.setSpeed(1.5);
+    await Media3Player.setLocked(true);
+    await Media3Player.setLocked(false);
     await Media3Player.close();
     expect(calls.map((call) => call.method), [
       'pause',
       'play',
       'seek',
       'speed',
+      'lock',
+      'lock',
       'close',
     ]);
     expect(calls[2].arguments, 42000);
     expect(calls[3].arguments, 1.5);
+    expect(calls[4].arguments, isTrue);
+    expect(calls[5].arguments, isFalse);
   });
 
   test(
@@ -273,6 +279,8 @@ void main() {
       expect(fullscreen, 1);
       expect(back, 1);
       expect(locked, isTrue);
+      await send('lock', false);
+      expect(locked, isFalse);
       closed.complete(snapshot);
       expect((await playback).position, state!.position);
     },

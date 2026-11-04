@@ -76,10 +76,8 @@ internal class Media3Controls(
         fitButton.setOnClickListener { showFits() }
         speedButton.setOnClickListener { showSpeeds() }
         lock.setOnClickListener {
-            gestures.locked = !gestures.locked
             lock.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-            applyLock()
-            if (!gestures.locked) playerView.showController()
+            setLocked(!gestures.locked)
         }
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
             if (!gestures.locked) lock.visibility = visibility
@@ -211,6 +209,13 @@ internal class Media3Controls(
             playerView.controllerShowTimeoutMs = timeout
         }
         menu.show()
+    }
+
+    fun setLocked(locked: Boolean) {
+        endSpeedBoost()
+        gestures.locked = locked
+        applyLock()
+        if (!locked) playerView.showController()
     }
 
     private fun applyLock() {

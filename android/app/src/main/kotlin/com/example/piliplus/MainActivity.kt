@@ -12,14 +12,13 @@ class MainActivity : AudioServiceActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        media3Bridge = Media3Bridge(this, flutterEngine.dartExecutor.binaryMessenger)
-        flutterEngine.platformViewsController.registry.registerViewFactory(
-            "com.example.piliplus/media3_view", media3Bridge!!.viewFactory,
-        )
+        if (!flutterEngine.plugins.has(Media3Bridge::class.java)) {
+            flutterEngine.plugins.add(Media3Bridge())
+        }
+        media3Bridge = flutterEngine.plugins.get(Media3Bridge::class.java) as Media3Bridge
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
-        media3Bridge?.dispose()
         media3Bridge = null
         super.cleanUpFlutterEngine(flutterEngine)
     }

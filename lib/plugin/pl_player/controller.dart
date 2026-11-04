@@ -1705,6 +1705,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// 关闭控制栏
   void onLockControl(bool val) {
     feedBack();
+    if (useMedia3.value && media3Active.value) {
+      Media3Player.setLocked(val).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        Utils.reportError(error, stackTrace);
+        SmartDialog.showToast('原生播放器锁定状态更新失败：$error');
+      });
+      return;
+    }
     controlsLock.value = val;
     if (!val && showControls.value) {
       showControls.refresh();
