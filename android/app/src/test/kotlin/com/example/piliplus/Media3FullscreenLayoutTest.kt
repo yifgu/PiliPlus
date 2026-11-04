@@ -39,19 +39,33 @@ class Media3FullscreenLayoutTest {
     }
 
     @Test
-    fun fullscreenControllerIsAccessedOnlyAfterInstallingWindowContent() {
-        val activity = File(
-            "src/main/kotlin/com/example/piliplus/Media3PlayerActivity.kt",
+    fun nativePlaybackIsEmbeddedInsteadOfLaunchingAnotherActivity() {
+        val bridge = File(
+            "src/main/kotlin/com/example/piliplus/Media3Bridge.kt",
         ).readText()
-        val onCreate = activity.substringAfter("override fun onCreate(")
-            .substringBefore("override fun onWindowFocusChanged(")
-        val installContent = onCreate.indexOf("setContentView(R.layout.media3_player)")
-        val enterFullscreen = onCreate.indexOf("enterFullscreen()")
-        assertTrue("The player content must be installed during onCreate", installContent >= 0)
-        assertTrue(
-            "PhoneWindow.getInsetsController() requires an installed decor view",
-            enterFullscreen > installContent,
-        )
+        val session = File("src/main/kotlin/com/example/piliplus/Media3Session.kt").readText()
+        val manifest = File("src/main/AndroidManifest.xml").readText()
+        assertTrue(bridge.contains("PlatformViewFactory"))
+        assertTrue(bridge.contains("host.addView(view"))
+        assertFalse(bridge.contains("startActivity"))
+        assertFalse(manifest.contains("Media3PlayerActivity"))
+        assertFalse(session.contains("setContentView"))
+        assertFalse(session.contains("systemUiVisibility"))
+        assertFalse(session.contains("hide(WindowInsets.Type.systemBars())"))
+    }
+
+    @Test
+    fun fullscreenControlIsAvailableWithoutReplacingTheNativeSession() {
+        val controls = resource("layout/media3_controls.xml")
+        val fullscreen = controls.elements("ImageButton").single {
+            it.getAttributeNS(android, "id") == "@+id/media3_fullscreen"
+        }
+        assertEquals("@string/media3_player_fullscreen", fullscreen.getAttributeNS(android, "contentDescription"))
+        val code = File("src/main/kotlin/com/example/piliplus/Media3Controls.kt").readText()
+        assertTrue(code.contains("onEvent(\"fullscreen\", null)"))
+        assertTrue(code.contains("onEvent(\"back\", null)"))
+        assertFalse(code.contains("activity.finish()"))
+        assertFalse(code.contains("activity.findViewById"))
     }
 
     @Test

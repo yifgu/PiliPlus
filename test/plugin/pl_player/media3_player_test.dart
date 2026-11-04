@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:PiliPlus/plugin/pl_player/media3_player.dart';
 import 'package:PiliPlus/plugin/pl_player/models/dolby_vision_profile5_mode.dart';
 import 'package:flutter/services.dart';
@@ -181,14 +183,98 @@ void main() {
     },
   );
 
-  test('pause and close use the native lifecycle channel', () async {
-    final methods = <String>[];
+  test('embedded playback commands use the native session', () async {
+    final calls = <MethodCall>[];
     messenger.setMockMethodCallHandler(Media3Player.channel, (call) async {
-      methods.add(call.method);
+      calls.add(call);
       return null;
     });
     await Media3Player.pause();
+    await Media3Player.play();
+    await Media3Player.seek(const Duration(seconds: 42));
+    await Media3Player.setSpeed(1.5);
     await Media3Player.close();
-    expect(methods, ['pause', 'close']);
+    expect(calls.map((call) => call.method), [
+      'pause',
+      'play',
+      'seek',
+      'speed',
+      'close',
+    ]);
+    expect(calls[2].arguments, 42000);
+    expect(calls[3].arguments, 1.5);
   });
+
+  test(
+    'embedded state and navigation events remain live until close',
+    () async {
+      final closed = Completer<Map<Object?, Object?>>();
+      final snapshot = <Object?, Object?>{
+        'positionMs': 12345,
+        'durationMs': 60000,
+        'speed': 1.25,
+        'completed': false,
+      };
+      messenger.setMockMethodCallHandler(Media3Player.channel, (call) async {
+        expect(call.method, 'open');
+        return closed.future;
+      });
+      Media3PlaybackResult? state;
+      bool? playing;
+      bool? buffering;
+      bool? locked;
+      var fullscreen = 0;
+      var back = 0;
+      final playback = Media3Player.open(
+        video: '/video.mp4',
+        position: Duration.zero,
+        speed: 1,
+        headers: {},
+        onState: (value, isPlaying, isBuffering) {
+          state = value;
+          playing = isPlaying;
+          buffering = isBuffering;
+        },
+        onFullscreen: () async {
+          fullscreen++;
+        },
+        onBack: () async {
+          back++;
+        },
+        onLock: (value) => locked = value,
+      );
+      Future<void> send(String method, [Object? arguments]) async {
+        final response = Completer<void>();
+        await messenger.handlePlatformMessage(
+          Media3Player.channel.name,
+          const StandardMethodCodec().encodeMethodCall(
+            MethodCall(method, arguments),
+          ),
+          (data) {
+            expect(data, isNotNull);
+            expect(const StandardMethodCodec().decodeEnvelope(data!), isNull);
+            response.complete();
+          },
+        );
+        await response.future;
+      }
+
+      await send('state', {...snapshot, 'playing': true, 'buffering': false});
+      expect(state?.position, const Duration(milliseconds: 12345));
+      expect(state?.speed, 1.25);
+      expect(playing, isTrue);
+      expect(buffering, isFalse);
+      await send('state', {...snapshot, 'playing': false, 'buffering': true});
+      expect(playing, isFalse);
+      expect(buffering, isTrue);
+      await send('fullscreen');
+      await send('back');
+      await send('lock', true);
+      expect(fullscreen, 1);
+      expect(back, 1);
+      expect(locked, isTrue);
+      closed.complete(snapshot);
+      expect((await playback).position, state!.position);
+    },
+  );
 }

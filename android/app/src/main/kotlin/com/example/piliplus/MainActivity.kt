@@ -1,7 +1,6 @@
 package com.example.piliplus
 
 import android.content.res.Configuration
-import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager.LayoutParams
@@ -14,6 +13,9 @@ class MainActivity : AudioServiceActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         media3Bridge = Media3Bridge(this, flutterEngine.dartExecutor.binaryMessenger)
+        flutterEngine.platformViewsController.registry.registerViewFactory(
+            "com.example.piliplus/media3_view", media3Bridge!!.viewFactory,
+        )
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
@@ -22,9 +24,9 @@ class MainActivity : AudioServiceActivity() {
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        if (media3Bridge?.onActivityResult(requestCode, resultCode, data) == true) return
-        super.onActivityResult(requestCode, resultCode, data)
+    override fun onStop() {
+        media3Bridge?.pause()
+        super.onStop()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

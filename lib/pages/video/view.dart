@@ -53,6 +53,7 @@ import 'package:PiliPlus/plugin/pl_player/models/fullscreen_mode.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
+import 'package:PiliPlus/plugin/pl_player/view/media3_video_view.dart';
 import 'package:PiliPlus/plugin/pl_player/view/view.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/services/shutdown_timer_service.dart'
@@ -1220,6 +1221,13 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
         return const SizedBox.shrink();
       }
       if (controller.useMedia3.value) {
+        if (controller.media3Active.value) {
+          return SizedBox(
+            width: width,
+            height: height,
+            child: const Media3VideoView(),
+          );
+        }
         return SizedBox(
           width: width,
           height: height,
@@ -1235,15 +1243,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                     ),
                     const SizedBox(height: 8),
                     FilledButton.icon(
-                      onPressed: controller.media3Active.value
-                          ? null
-                          : () => controller.play(),
+                      onPressed: () => controller.play(),
                       icon: const Icon(Icons.play_arrow_rounded),
-                      label: Text(
-                        controller.media3Active.value
-                            ? '正在原生播放器中播放'
-                            : '打开原生播放器',
-                      ),
+                      label: const Text('播放'),
                     ),
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 24),

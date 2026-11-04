@@ -52,27 +52,60 @@ class Media3Player {
     bool quickDoubleTap = true,
     double longPressSpeed = 3,
     int accentColor = 0xFFFFFFFF,
+    void Function(Media3PlaybackResult state, bool playing, bool buffering)?
+    onState,
+    Future<void> Function()? onFullscreen,
+    Future<void> Function()? onBack,
+    void Function(bool locked)? onLock,
   }) async {
-    final result = await channel.invokeMapMethod<Object?, Object?>('open', {
-      'video': video,
-      if (audio != null && audio.isNotEmpty) 'audio': audio,
-      'positionMs': position.inMilliseconds,
-      'speed': speed,
-      'headers': headers,
-      'title': title,
-      'speeds': speeds,
-      'seekStepMs': seekStep.inMilliseconds,
-      'controlsTimeoutMs': controlsTimeout.inMilliseconds,
-      'quickDoubleTap': quickDoubleTap,
-      'longPressSpeed': longPressSpeed,
-      'accentColor': accentColor,
+    channel.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'state':
+          final state = Map<Object?, Object?>.from(call.arguments as Map);
+          onState?.call(
+            Media3PlaybackResult.fromMap(state),
+            state['playing'] as bool,
+            state['buffering'] as bool,
+          );
+        case 'fullscreen':
+          await onFullscreen?.call();
+        case 'back':
+          await onBack?.call();
+        case 'lock':
+          onLock?.call(call.arguments as bool);
+        default:
+          throw MissingPluginException('Unknown Media3 event: ${call.method}');
+      }
     });
-    if (result == null) {
-      throw const FormatException('Missing Media3 playback result');
+    try {
+      final result = await channel.invokeMapMethod<Object?, Object?>('open', {
+        'video': video,
+        if (audio != null && audio.isNotEmpty) 'audio': audio,
+        'positionMs': position.inMilliseconds,
+        'speed': speed,
+        'headers': headers,
+        'title': title,
+        'speeds': speeds,
+        'seekStepMs': seekStep.inMilliseconds,
+        'controlsTimeoutMs': controlsTimeout.inMilliseconds,
+        'quickDoubleTap': quickDoubleTap,
+        'longPressSpeed': longPressSpeed,
+        'accentColor': accentColor,
+      });
+      if (result == null) {
+        throw const FormatException('Missing Media3 playback result');
+      }
+      return Media3PlaybackResult.fromMap(result);
+    } finally {
+      channel.setMethodCallHandler(null);
     }
-    return Media3PlaybackResult.fromMap(result);
   }
 
   static Future<void> close() => channel.invokeMethod<void>('close');
   static Future<void> pause() => channel.invokeMethod<void>('pause');
+  static Future<void> play() => channel.invokeMethod<void>('play');
+  static Future<void> seek(Duration position) =>
+      channel.invokeMethod<void>('seek', position.inMilliseconds);
+  static Future<void> setSpeed(double speed) =>
+      channel.invokeMethod<void>('speed', speed);
 }

@@ -2,6 +2,7 @@
 <resources>
     <string name="media3_player_title">Media3 · 杜比视界 Profile 5</string>
     <string name="media3_player_back">返回</string>
+    <string name="media3_player_fullscreen">切换全屏</string>
     <string name="media3_player_info">播放信息</string>
     <string name="media3_player_seek">播放进度</string>
     <string name="media3_player_speed">倍速</string>

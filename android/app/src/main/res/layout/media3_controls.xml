@@ -38,6 +38,12 @@
             style="@style/Media3ControlText"
             android:contentDescription="@string/media3_player_info"
             android:text="@string/media3_player_info" />
+
+        <ImageButton
+            android:id="@+id/media3_fullscreen"
+            style="@style/Media3ControlButton"
+            android:contentDescription="@string/media3_player_fullscreen"
+            android:src="@drawable/ic_player_fullscreen" />
     </LinearLayout>
 
     <LinearLayout

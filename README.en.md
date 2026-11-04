@@ -53,8 +53,11 @@ software decoding. If needed, select a non-Dolby quality.
 ### Experimental native Media3 mode
 
 Select **Media3 原生播放器（实验性）** in the same Profile 5 setting, then reopen
-the video. This is a separate Android full-screen Media3/ExoPlayer activity using
-a **SurfaceView**, not an mpv decoder or a Flutter texture. It requires Android
+the video. Media3/ExoPlayer is embedded in the video page using a native
+**SurfaceView** with hybrid composition, not an mpv decoder or a Flutter texture.
+In portrait mode, comments, video details, and other page content remain visible
+and interactive below the player. The fullscreen button expands the same playback
+session; Back exits fullscreen before leaving the video page. It requires Android
 7.0+ and a display and decoder advertising Dolby Vision support. It is independent
 of the mpv hardware-decoding switch. Software decoding remains the default.
 Playback and controls remain edge-to-edge without whole-edge safe-area padding.
@@ -80,9 +83,9 @@ boosts speed; releasing or leaving the player restores it. Lock disables these
 gestures and locks orientation; tap the video to reveal Unlock. Native video-fit
 choices apply only to the current native session.
 
-Back returns the position and speed to PiliPlus without resuming mpv; the play button reopens
-Media3 at that position. Completion uses PiliPlus's existing repeat/next-episode
-policy. Leaving the native activity stops playback; returning from the background
+Position, playback state, and speed stay synchronized with PiliPlus, including
+seeks from chapter timestamps. Completion uses PiliPlus's existing repeat/next-episode
+policy. Leaving the app pauses playback; returning from the background
 requires pressing play. Danmaku, external subtitles, mpv filters, SponsorBlock
 skipping, background playback and PiP are not supported in this mode. The UI is
 native rather than the Flutter/mpv widget: swipe brightness/volume/seeking,
@@ -93,7 +96,8 @@ silently falling back to HEVC or mpv.
 For device trials, compare the same Profile 5 clip with software mode. Tap
 **Playback info** to see the active decoder name and `SurfaceView` diagnostic.
 Check colors, the device's Dolby Vision indication, split audio synchronization,
-seek/resume, rotation, Back, background/foreground, and then a Profile 8.4 clip.
+seek/resume, scrolling/tapping comments during portrait playback, fullscreen/Back,
+rotation, background/foreground, and then a Profile 8.4 clip.
 Capability checks do **not** prove correct Dolby Vision output on every device.
 If playback fails or looks wrong, select software mode and reopen the video.
 

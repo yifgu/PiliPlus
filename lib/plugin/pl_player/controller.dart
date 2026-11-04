@@ -625,7 +625,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   void _onOrientationChanged(OrientationParams param) {
-    if (media3Active.value) return;
     _orientation = param.orientation;
     if (Platform.isIOS && !visible) return;
     if (controlsLock.value) return;
@@ -814,7 +813,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
       dataStatus.value = .loaded;
 
-      if (!useMedia3.value && autoFullScreenFlag && autoEnterFullScreen) {
+      if (autoFullScreenFlag && autoEnterFullScreen) {
         triggerFullScreen(status: true);
       }
 
@@ -1078,10 +1077,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       // A track-detection handoff may still be unloading mpv during autoplay.
       await _videoPlayerController?.stop();
       if (generation != _sourceGeneration || _playerCount == 0) return;
-      // The native activity owns audio focus and its screen-on lifecycle.
+      // The embedded native player owns audio focus and its screen-on lifecycle.
       await audioSessionHandler?.setActive(false);
       _disableAutoEnterPip();
-      if (isFullScreen.value) await triggerFullScreen(status: false);
       if (generation != _sourceGeneration || _playerCount == 0) return;
       playerStatus = .paused;
       isBuffering.value = false;
@@ -1107,6 +1105,39 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
                     ? colors.inversePrimary
                     : colors.primary)
                 .toARGB32(),
+        onState: (state, playing, buffering) {
+          if (generation != _sourceGeneration || _playerCount == 0) return;
+          _media3Position = state.position;
+          final seconds = state.position.inSeconds;
+          if (position.value != seconds) {
+            position.value = seconds;
+            makeHeartBeat(seconds);
+          }
+          if (state.duration > Duration.zero) updateDuration(state.duration);
+          _playbackSpeed.value = state.speed;
+          isBuffering.value = buffering;
+          final status = playing ? PlayerStatus.playing : PlayerStatus.paused;
+          final changed = playerStatus != status;
+          playerStatus = status;
+          _updatePlaybackState();
+          for (final listener in _positionListeners.toList()) {
+            listener(state.position);
+          }
+          if (changed) {
+            for (final listener in _statusListeners.toList()) {
+              listener(status);
+            }
+          }
+        },
+        onFullscreen: () => triggerFullScreen(status: !isFullScreen.value),
+        onLock: (locked) => controlsLock.value = locked,
+        onBack: () async {
+          if (isFullScreen.value) {
+            await triggerFullScreen(status: false);
+          } else {
+            Get.back();
+          }
+        },
       );
       if (generation != _sourceGeneration || _playerCount == 0) return;
       _media3Position = result.position;
@@ -1138,6 +1169,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         _reportMedia3Error(error, stackTrace);
       }
     } finally {
+      controlsLock.value = false;
       media3Active.value = false;
     }
   }
@@ -1360,6 +1392,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   Future<void> seek(Duration position, {bool isSeek = false}) async {
     if (useMedia3.value) {
+      if (media3Active.value) await Media3Player.seek(position);
       _media3Position = position;
       this.position.value = position.inSeconds;
       for (final listener in _positionListeners.toList()) {
@@ -1406,6 +1439,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Future<void> setPlaybackSpeed(double speed) async {
     lastPlaybackSpeed = playbackSpeed;
     if (useMedia3.value) {
+      if (media3Active.value) await Media3Player.setSpeed(speed);
       _playbackSpeed.value = speed;
       return;
     }
@@ -1431,6 +1465,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Future<void> play({bool repeat = false, bool hideControls = true}) async {
     if (_playerCount == 0) return;
     if (useMedia3.value) {
+      if (media3Active.value) {
+        if (repeat) await seek(Duration.zero);
+        return Media3Player.play();
+      }
       if (repeat || playerStatus.isCompleted) _media3Position = Duration.zero;
       return _playMedia3();
     }

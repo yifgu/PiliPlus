@@ -2,6 +2,7 @@
 <resources>
     <string name="media3_player_title">Media3 · Dolby Vision Profile 5</string>
     <string name="media3_player_back">Back</string>
+    <string name="media3_player_fullscreen">Toggle fullscreen</string>
     <string name="media3_player_info">Playback info</string>
     <string name="media3_player_seek">Seek</string>
     <string name="media3_player_speed">Playback speed</string>

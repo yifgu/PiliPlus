@@ -3,7 +3,6 @@ package com.example.piliplus
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.pm.ActivityInfo
-import android.os.Bundle
 import android.view.GestureDetector
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -21,22 +20,23 @@ import androidx.media3.ui.PlayerView
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class Media3Controls(
     private val activity: Activity,
+    private val root: ViewGroup,
     private val playerView: PlayerView,
-    savedState: Bundle?,
+    private val request: Media3Request,
+    private val onEvent: (String, Any?) -> Unit,
 ) {
-    private val lock = activity.findViewById<ImageButton>(R.id.media3_lock)
-    private val feedback = activity.findViewById<TextView>(R.id.media3_feedback)
-    private val speedButton = activity.findViewById<TextView>(R.id.media3_speed)
-    private val fitButton = activity.findViewById<TextView>(R.id.media3_fit)
-    private val timeout = activity.intent.getIntExtra("controlsTimeoutMs", 3000)
-    private val seekStep = activity.intent.getLongExtra("seekStepMs", 10000)
+    private val lock = root.findViewById<ImageButton>(R.id.media3_lock)
+    private val feedback = root.findViewById<TextView>(R.id.media3_feedback)
+    private val speedButton = root.findViewById<TextView>(R.id.media3_speed)
+    private val fitButton = root.findViewById<TextView>(R.id.media3_fit)
+    private val timeout = request.controlsTimeoutMs
+    private val seekStep = request.seekStepMs
+    private var previousOrientation: Int? = null
     private val gestures = Media3GestureState(
-        activity.intent.getBooleanExtra("quickDoubleTap", true),
+        request.quickDoubleTap,
         seekStep,
-        activity.intent.getFloatExtra("longPressSpeed", 3f),
-    ).apply {
-        locked = savedState?.getBoolean("controlsLocked") ?: false
-    }
+        request.longPressSpeed,
+    )
     private var dialog: AlertDialog? = null
     private var diagnostics = activity.getString(R.string.media3_player_title)
     private val hideFeedback = Runnable { feedback.visibility = View.GONE }
@@ -50,11 +50,12 @@ internal class Media3Controls(
     )
 
     init {
-        activity.findViewById<View>(R.id.media3_back).setOnClickListener { activity.finish() }
-        activity.findViewById<TextView>(R.id.media3_title).text =
-            activity.intent.getStringExtra("title")?.takeIf { it.isNotBlank() }
+        root.findViewById<View>(R.id.media3_back).setOnClickListener { onEvent("back", null) }
+        root.findViewById<View>(R.id.media3_fullscreen).setOnClickListener { onEvent("fullscreen", null) }
+        root.findViewById<TextView>(R.id.media3_title).text =
+            request.title.takeIf { it.isNotBlank() }
                 ?: activity.getString(R.string.media3_player_title)
-        activity.findViewById<View>(R.id.media3_info).setOnClickListener {
+        root.findViewById<View>(R.id.media3_info).setOnClickListener {
             showDialog(
                 AlertDialog.Builder(activity)
                     .setTitle(R.string.media3_player_info)
@@ -63,14 +64,14 @@ internal class Media3Controls(
                     .create()
             )
         }
-        val accent = activity.intent.getIntExtra("accentColor", -1)
-        activity.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress).apply {
+        val accent = request.accentColor
+        root.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress).apply {
             setPlayedColor(accent)
             setScrubberColor(accent)
             setBufferedColor((accent and 0x00FFFFFF) or 0x66000000)
         }
         playerView.controllerShowTimeoutMs = timeout
-        playerView.resizeMode = savedState?.getInt("resizeMode") ?: AspectRatioFrameLayout.RESIZE_MODE_FIT
+        playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
         updateFit()
         fitButton.setOnClickListener { showFits() }
         speedButton.setOnClickListener { showSpeeds() }
@@ -132,23 +133,24 @@ internal class Media3Controls(
             true
         }
         applyLock()
-        val controller = activity.findViewById<FrameLayout>(R.id.media3_controls)
+        val controller = root.findViewById<FrameLayout>(R.id.media3_controls)
         Media3CutoutAvoidance(
-            activity.findViewById<ViewGroup>(android.R.id.content),
+            root,
             listOf(
                 R.id.media3_back,
                 R.id.media3_info,
                 androidx.media3.ui.R.id.exo_play_pause,
                 R.id.media3_fit,
                 R.id.media3_speed,
-            ).map { activity.findViewById<View>(it) to controller } +
-                (lock to activity.findViewById<FrameLayout>(R.id.media3_lock_container)),
+                R.id.media3_fullscreen,
+            ).map { root.findViewById<View>(it) to controller } +
+                (lock to root.findViewById<FrameLayout>(R.id.media3_lock_container)),
             listOf(
                 R.id.media3_title,
                 androidx.media3.ui.R.id.exo_progress,
                 androidx.media3.ui.R.id.exo_position,
                 androidx.media3.ui.R.id.exo_duration,
-            ).map { activity.findViewById<View>(it) },
+            ).map { root.findViewById<View>(it) },
         )
     }
 
@@ -168,7 +170,7 @@ internal class Media3Controls(
     private fun showSpeeds() {
         val player = playerView.player ?: return
         val current = player.playbackParameters.speed
-        val speeds = (requireNotNull(activity.intent.getFloatArrayExtra("speeds")).toList() + current).distinct().sorted()
+        val speeds = (request.speeds.toList() + current).distinct().sorted()
         showDialog(
             AlertDialog.Builder(activity)
                 .setTitle(R.string.media3_player_speed)
@@ -218,8 +220,14 @@ internal class Media3Controls(
         lock.setContentDescription(activity.getString(
             if (locked) R.string.media3_player_unlock else R.string.media3_player_lock
         ))
-        activity.requestedOrientation =
-            if (locked) ActivityInfo.SCREEN_ORIENTATION_LOCKED else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        if (locked) {
+            if (previousOrientation == null) previousOrientation = activity.requestedOrientation
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
+        } else {
+            restoreOrientation()
+        }
+        root.findViewById<View>(R.id.media3_fullscreen).isEnabled = !locked
+        onEvent("lock", locked)
         lock.removeCallbacks(hideLock)
         if (locked) showLock()
     }
@@ -244,9 +252,14 @@ internal class Media3Controls(
         }
     }
 
-    fun saveState(state: Bundle) {
-        state.putBoolean("controlsLocked", gestures.locked)
-        state.putInt("resizeMode", playerView.resizeMode)
+    private fun restoreOrientation() {
+        previousOrientation?.let { activity.requestedOrientation = it }
+        previousOrientation = null
+    }
+
+    fun dispose() {
+        onStop()
+        restoreOrientation()
     }
 
     fun onStop() {
