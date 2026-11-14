@@ -36,6 +36,7 @@ android {
     }
 
     packagingOptions.jniLibs.useLegacyPackaging = true
+    testOptions.unitTests.isIncludeAndroidResources = true
 
     val keyProperties = Properties().also {
         val properties = rootProject.file("key.properties")
@@ -106,4 +107,6 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$media3Version")
     implementation("androidx.media3:media3-ui:$media3Version")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16")
+    testImplementation("org.mockito:mockito-core:5.14.2")
 }

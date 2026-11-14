@@ -755,12 +755,11 @@ class VideoDetailController extends GetxController
   }
 
   String get playerTitle {
+    final cid = this.cid.value;
     if (isFileSource) return entry.showTitle;
     final detail = (isUgc ? ugcIntroCtr : pgcIntroCtr).videoDetail.value;
     if (detail.videos == 1) return detail.title ?? '';
-    return detail.pages
-            ?.firstWhereOrNull((page) => page.cid == cid.value)
-            ?.part ??
+    return detail.pages?.firstWhereOrNull((page) => page.cid == cid)?.part ??
         detail.title ??
         '';
   }

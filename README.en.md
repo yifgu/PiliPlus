@@ -86,8 +86,10 @@ In fullscreen, system Back first unlocks locked native controls; pressing Back
 again exits fullscreen.
 
 Position, playback state, and speed stay synchronized with PiliPlus, including
-seeks from chapter timestamps. Completion uses PiliPlus's existing repeat/next-episode
-policy. Leaving the app pauses playback; returning from the background
+seeks from chapter timestamps. Shared page controls and playback keyboard shortcuts
+target the active player; play/pause, seek, and speed changes made during native
+startup are retained until its session is ready. Completion uses PiliPlus's
+existing repeat/next-episode policy. Leaving the app pauses playback; returning from the background
 requires pressing play. Danmaku, external subtitles, mpv filters, SponsorBlock
 skipping, background playback and PiP are not supported in this mode. The UI is
 native rather than the Flutter/mpv widget: swipe brightness/volume/seeking,

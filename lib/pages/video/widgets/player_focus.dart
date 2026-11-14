@@ -58,7 +58,8 @@ class PlayerFocus extends StatelessWidget {
   }
 
   bool get isFullScreen => plPlayerController.isFullScreen.value;
-  bool get hasPlayer => plPlayerController.videoPlayerController != null;
+  bool get hasPlayer => plPlayerController.hasPlayer;
+  bool get hasMpvPlayer => plPlayerController.hasMpvPlayer;
 
   void _setVolume({required bool isIncrease}) {
     final volume = isIncrease
@@ -220,7 +221,7 @@ class PlayerFocus extends StatelessWidget {
           return true;
 
         case LogicalKeyboardKey.keyP:
-          if (PlatformUtils.isDesktop && hasPlayer && !isFullScreen) {
+          if (PlatformUtils.isDesktop && hasMpvPlayer && !isFullScreen) {
             plPlayerController
               ..toggleDesktopPip()
               ..controlsLock.value = false
@@ -229,7 +230,7 @@ class PlayerFocus extends StatelessWidget {
           return true;
 
         case LogicalKeyboardKey.keyM:
-          if (hasPlayer) {
+          if (hasMpvPlayer) {
             final isMuted = !plPlayerController.isMuted;
             plPlayerController.setVolumeCapped(
               plPlayerController.videoPlayerController,
@@ -241,7 +242,7 @@ class PlayerFocus extends StatelessWidget {
           return true;
 
         case LogicalKeyboardKey.keyS:
-          if (hasPlayer && isFullScreen) {
+          if (hasMpvPlayer && isFullScreen) {
             plPlayerController.takeScreenshot();
           }
           return true;

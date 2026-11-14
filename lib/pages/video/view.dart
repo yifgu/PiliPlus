@@ -53,6 +53,7 @@ import 'package:PiliPlus/plugin/pl_player/models/fullscreen_mode.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
+import 'package:PiliPlus/plugin/pl_player/view/media3_playback_placeholder.dart';
 import 'package:PiliPlus/plugin/pl_player/view/media3_video_view.dart';
 import 'package:PiliPlus/plugin/pl_player/view/view.dart';
 import 'package:PiliPlus/services/service_locator.dart';
@@ -1231,48 +1232,12 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
         return SizedBox(
           width: width,
           height: height,
-          child: Stack(
-            children: [
-              Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'Media3 · Dolby Vision Profile 5',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    const SizedBox(height: 8),
-                    FilledButton.icon(
-                      onPressed: () => controller.play(),
-                      icon: const Icon(Icons.play_arrow_rounded),
-                      label: const Text('播放'),
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 24),
-                      child: Text(
-                        '播放失败时，请在音视频设置中切回软解并重新打开视频',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () => Get.to(
-                        () => const CommonSetting(settingType: .videoSetting),
-                      ),
-                      child: const Text('音视频设置'),
-                    ),
-                  ],
-                ),
-              ),
-              Align(
-                alignment: Alignment.topLeft,
-                child: IconButton(
-                  tooltip: '返回',
-                  onPressed: Get.back,
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                ),
-              ),
-            ],
+          child: Media3PlaybackPlaceholder(
+            onPlay: () => controller.play(),
+            onOpenSettings: () => Get.to(
+              () => const CommonSetting(settingType: .videoSetting),
+            ),
+            onBack: Get.back,
           ),
         );
       }
