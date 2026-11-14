@@ -38,7 +38,9 @@ class Media3PlaybackResult {
 
 class Media3Player {
   static const channel = MethodChannel('com.example.piliplus/media3');
+  static Object? _activeSession;
 
+  /// Completes when the native session closes, not when playback becomes ready.
   static Future<Media3PlaybackResult> open({
     required String video,
     String? audio,
@@ -58,26 +60,33 @@ class Media3Player {
     Future<void> Function()? onBack,
     void Function(bool locked)? onLock,
   }) async {
-    channel.setMethodCallHandler((call) async {
-      switch (call.method) {
-        case 'state':
-          final state = Map<Object?, Object?>.from(call.arguments as Map);
-          onState?.call(
-            Media3PlaybackResult.fromMap(state),
-            state['playing'] as bool,
-            state['buffering'] as bool,
-          );
-        case 'fullscreen':
-          await onFullscreen?.call();
-        case 'back':
-          await onBack?.call();
-        case 'lock':
-          onLock?.call(call.arguments as bool);
-        default:
-          throw MissingPluginException('Unknown Media3 event: ${call.method}');
-      }
-    });
+    if (_activeSession != null) {
+      throw PlatformException(code: 'busy', message: 'Media3 is already open');
+    }
+    final session = Object();
+    _activeSession = session;
     try {
+      channel.setMethodCallHandler((call) async {
+        switch (call.method) {
+          case 'state':
+            final state = Map<Object?, Object?>.from(call.arguments as Map);
+            onState?.call(
+              Media3PlaybackResult.fromMap(state),
+              state['playing'] as bool,
+              state['buffering'] as bool,
+            );
+          case 'fullscreen':
+            await onFullscreen?.call();
+          case 'back':
+            await onBack?.call();
+          case 'lock':
+            onLock?.call(call.arguments as bool);
+          default:
+            throw MissingPluginException(
+              'Unknown Media3 event: ${call.method}',
+            );
+        }
+      });
       final result = await channel.invokeMapMethod<Object?, Object?>('open', {
         'video': video,
         if (audio != null && audio.isNotEmpty) 'audio': audio,
@@ -97,7 +106,10 @@ class Media3Player {
       }
       return Media3PlaybackResult.fromMap(result);
     } finally {
-      channel.setMethodCallHandler(null);
+      if (identical(_activeSession, session)) {
+        channel.setMethodCallHandler(null);
+        _activeSession = null;
+      }
     }
   }
 

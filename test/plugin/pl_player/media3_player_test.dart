@@ -10,6 +10,30 @@ void main() {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
+  Future<void> send(
+    String method, {
+    Object? arguments,
+    bool hasHandler = true,
+  }) async {
+    final response = Completer<void>();
+    await messenger.handlePlatformMessage(
+      Media3Player.channel.name,
+      const StandardMethodCodec().encodeMethodCall(
+        MethodCall(method, arguments),
+      ),
+      (data) {
+        if (hasHandler) {
+          expect(data, isNotNull);
+          expect(const StandardMethodCodec().decodeEnvelope(data!), isNull);
+        } else {
+          expect(data, isNull);
+        }
+        response.complete();
+      },
+    );
+    await response.future;
+  }
+
   tearDown(() {
     messenger.setMockMethodCallHandler(Media3Player.channel, null);
   });
@@ -212,7 +236,7 @@ void main() {
   });
 
   test(
-    'embedded state and navigation events remain live until close',
+    'overlapping open preserves live state and navigation callbacks',
     () async {
       final closed = Completer<Map<Object?, Object?>>();
       final snapshot = <Object?, Object?>{
@@ -221,8 +245,16 @@ void main() {
         'speed': 1.25,
         'completed': false,
       };
+      var openRequests = 0;
       messenger.setMockMethodCallHandler(Media3Player.channel, (call) async {
         expect(call.method, 'open');
+        openRequests++;
+        if (openRequests > 1) {
+          throw PlatformException(
+            code: 'busy',
+            message: 'Media3 is already open',
+          );
+        }
         return closed.future;
       });
       Media3PlaybackResult? state;
@@ -249,40 +281,124 @@ void main() {
         },
         onLock: (value) => locked = value,
       );
-      Future<void> send(String method, [Object? arguments]) async {
-        final response = Completer<void>();
-        await messenger.handlePlatformMessage(
-          Media3Player.channel.name,
-          const StandardMethodCodec().encodeMethodCall(
-            MethodCall(method, arguments),
+      await expectLater(
+        Media3Player.open(
+          video: '/other.mp4',
+          position: Duration.zero,
+          speed: 1,
+          headers: {},
+          onState: (_, _, _) => fail('Rejected session received state'),
+          onFullscreen: () async => fail('Rejected session went fullscreen'),
+          onBack: () async => fail('Rejected session navigated back'),
+          onLock: (_) => fail('Rejected session received lock'),
+        ),
+        throwsA(
+          isA<PlatformException>().having(
+            (error) => error.code,
+            'code',
+            'busy',
           ),
-          (data) {
-            expect(data, isNotNull);
-            expect(const StandardMethodCodec().decodeEnvelope(data!), isNull);
-            response.complete();
-          },
-        );
-        await response.future;
-      }
-
-      await send('state', {...snapshot, 'playing': true, 'buffering': false});
+        ),
+      );
+      expect(openRequests, 1);
+      await send(
+        'state',
+        arguments: {...snapshot, 'playing': true, 'buffering': false},
+      );
       expect(state?.position, const Duration(milliseconds: 12345));
       expect(state?.speed, 1.25);
       expect(playing, isTrue);
       expect(buffering, isFalse);
-      await send('state', {...snapshot, 'playing': false, 'buffering': true});
+      await send(
+        'state',
+        arguments: {...snapshot, 'playing': false, 'buffering': true},
+      );
       expect(playing, isFalse);
       expect(buffering, isTrue);
       await send('fullscreen');
       await send('back');
-      await send('lock', true);
+      await send('lock', arguments: true);
       expect(fullscreen, 1);
       expect(back, 1);
       expect(locked, isTrue);
-      await send('lock', false);
+      await send('lock', arguments: false);
       expect(locked, isFalse);
       closed.complete(snapshot);
       expect((await playback).position, state!.position);
+      await send('lock', arguments: true, hasHandler: false);
     },
   );
+
+  test('session cleanup permits reopening after success and failure', () async {
+    final snapshot = <Object?, Object?>{
+      'positionMs': 12345,
+      'durationMs': 60000,
+      'speed': 1.25,
+      'completed': false,
+    };
+    final platformError = PlatformException(
+      code: 'unavailable',
+      message: 'Decoder unavailable',
+      details: 'decoder details',
+    );
+    final outcomes = <(Map<Object?, Object?>?, PlatformException?)>[
+      (snapshot, null),
+      (null, platformError),
+      (null, null),
+      (<Object?, Object?>{}, null),
+      (snapshot, null),
+    ];
+    for (final (result, error) in outcomes) {
+      final closed = Completer<Map<Object?, Object?>?>();
+      messenger.setMockMethodCallHandler(Media3Player.channel, (call) async {
+        expect(call.method, 'open');
+        return closed.future;
+      });
+      bool? locked;
+      final playback = Media3Player.open(
+        video: '/video.mp4',
+        position: Duration.zero,
+        speed: 1,
+        headers: {},
+        onLock: (value) => locked = value,
+      );
+      final expectation = expectLater(
+        playback,
+        error != null
+            ? throwsA(
+                isA<PlatformException>()
+                    .having((error) => error.code, 'code', platformError.code)
+                    .having(
+                      (error) => error.message,
+                      'message',
+                      platformError.message,
+                    )
+                    .having(
+                      (error) => error.details,
+                      'details',
+                      platformError.details,
+                    ),
+              )
+            : result == null || result.isEmpty
+            ? throwsFormatException
+            : completion(
+                isA<Media3PlaybackResult>().having(
+                  (result) => result.position,
+                  'position',
+                  const Duration(milliseconds: 12345),
+                ),
+              ),
+      );
+      await send('lock', arguments: true);
+      expect(locked, isTrue);
+      if (error != null) {
+        closed.completeError(error);
+      } else {
+        closed.complete(result);
+      }
+      await expectation;
+      await send('lock', arguments: false, hasHandler: false);
+      expect(locked, isTrue);
+    }
+  });
 }

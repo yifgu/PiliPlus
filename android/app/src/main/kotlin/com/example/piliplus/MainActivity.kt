@@ -12,10 +12,7 @@ class MainActivity : AudioServiceActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        if (!flutterEngine.plugins.has(Media3Bridge::class.java)) {
-            flutterEngine.plugins.add(Media3Bridge())
-        }
-        media3Bridge = flutterEngine.plugins.get(Media3Bridge::class.java) as Media3Bridge
+        media3Bridge = Media3Bridge.forEngine(flutterEngine)
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {

@@ -61,6 +61,7 @@ internal class Media3Session(
     }
 
     fun start() {
+        if (returning) return
         if (Build.VERSION.SDK_INT < 24) {
             fail(activity.getString(R.string.media3_player_android_required))
             return
@@ -235,8 +236,9 @@ internal class Media3Session(
         if (returning) return
         returning = true
         handler.removeCallbacks(progress)
-        controls?.dispose()
         capturePosition()
+        controls?.dispose()
+        controls = null
         playerView.player = null
         player?.release()
         player = null

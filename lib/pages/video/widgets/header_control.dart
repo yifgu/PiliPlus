@@ -1658,29 +1658,14 @@ class HeaderControlState extends State<HeaderControl>
             ? EdgeInsets.zero
             : const EdgeInsets.only(right: 10),
         child: Obx(
-          () {
-            final videoDetail = introController.videoDetail.value;
-            final String title;
-            if (isFileSource || videoDetail.videos == 1) {
-              title = videoDetail.title!;
-            } else {
-              title =
-                  videoDetail.pages
-                      ?.firstWhereOrNull(
-                        (e) => e.cid == videoDetailCtr.cid.value,
-                      )
-                      ?.part ??
-                  videoDetail.title!;
-            }
-            return MarqueeText(
-              title,
-              spacing: 30,
-              velocity: 30,
-              strutStyle: const StrutStyle(fontSize: 16, leading: 0),
-              style: const TextStyle(color: Colors.white, fontSize: 16),
-              provider: effectiveProvider,
-            );
-          },
+          () => MarqueeText(
+            videoDetailCtr.playerTitle,
+            spacing: 30,
+            velocity: 30,
+            strutStyle: const StrutStyle(fontSize: 16, leading: 0),
+            style: const TextStyle(color: Colors.white, fontSize: 16),
+            provider: effectiveProvider,
+          ),
         ),
       );
       if (introController.isShowOnlineTotal) {

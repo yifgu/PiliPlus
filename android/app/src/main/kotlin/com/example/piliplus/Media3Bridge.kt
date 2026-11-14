@@ -5,6 +5,7 @@ import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -14,7 +15,11 @@ import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
 
-internal class Media3Bridge : FlutterPlugin, ActivityAware {
+internal class Media3Bridge(
+    private val createSession: (
+        Activity, Media3Request, (String, Any?) -> Unit, (Map<String, Any?>) -> Unit,
+    ) -> Media3Session = ::Media3Session,
+) : FlutterPlugin, ActivityAware {
     private lateinit var channel: MethodChannel
     private var activity: Activity? = null
     private var session: Media3Session? = null
@@ -101,7 +106,7 @@ internal class Media3Bridge : FlutterPlugin, ActivityAware {
                     result.error("invalid_source", error.message, null)
                     return
                 }
-                val playback = Media3Session(activity, request, { method, arguments ->
+                val playback = createSession(activity, request, { method, arguments ->
                     channel.invokeMethod(method, arguments)
                 }) { state ->
                     session = null
@@ -157,5 +162,14 @@ internal class Media3Bridge : FlutterPlugin, ActivityAware {
 
     fun pause() {
         session?.pause()
+    }
+
+    companion object {
+        fun forEngine(engine: FlutterEngine): Media3Bridge {
+            if (!engine.plugins.has(Media3Bridge::class.java)) {
+                engine.plugins.add(Media3Bridge())
+            }
+            return engine.plugins.get(Media3Bridge::class.java) as Media3Bridge
+        }
     }
 }

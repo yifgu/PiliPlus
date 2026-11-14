@@ -38,6 +38,7 @@ internal class Media3Controls(
         request.longPressSpeed,
     )
     private var dialog: AlertDialog? = null
+    private val cutoutAvoidance: Media3CutoutAvoidance
     private var diagnostics = activity.getString(R.string.media3_player_title)
     private val hideFeedback = Runnable { feedback.visibility = View.GONE }
     private val hideLock = Runnable { lock.visibility = View.GONE }
@@ -132,7 +133,7 @@ internal class Media3Controls(
         }
         applyLock()
         val controller = root.findViewById<FrameLayout>(R.id.media3_controls)
-        Media3CutoutAvoidance(
+        cutoutAvoidance = Media3CutoutAvoidance(
             root,
             listOf(
                 R.id.media3_back,
@@ -263,6 +264,7 @@ internal class Media3Controls(
     }
 
     fun dispose() {
+        cutoutAvoidance.dispose()
         onStop()
         restoreOrientation()
     }

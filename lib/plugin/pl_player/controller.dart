@@ -85,11 +85,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   PlayerStatus playerStatus = .paused;
   final RxBool useMedia3 = false.obs;
+  final RxBool media3Opening = false.obs;
   final RxBool media3Active = false.obs;
   Duration _media3Position = Duration.zero;
   Future<void>? _media3Playback;
+  Future<bool>? _media3Preparation;
+  bool? _media3PendingPlaying;
+  Duration? _media3PendingSeek;
+  double? _media3PendingSpeed;
   int _sourceGeneration = 0;
   DolbyVisionProfile5Mode _profile5Mode = DolbyVisionProfile5Mode.software;
+
+  bool get hasPlayer => _playerCount > 0 && (useMedia3.value || hasMpvPlayer);
+
+  bool get hasMpvPlayer => !useMedia3.value && _videoPlayerController != null;
 
   Duration get currentPosition => useMedia3.value
       ? _media3Position
@@ -301,6 +310,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   void enterDesktopPip() {
+    if (!hasMpvPlayer) return;
     final window = WindowController.instance.window;
     if (window == null) return;
 
@@ -371,6 +381,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   void enterPip({bool autoEnter = false}) {
+    if (!hasMpvPlayer) return;
     if (videoPlayerController case NativePlayer(:final state)) {
       if (Platform.isIOS) {
         if (videoController?.id.value case final textureId?) {
@@ -591,7 +602,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     bool isInterrupt = false,
   }) {
     if ((_instance?.playerStatus.isPlaying ?? false) ||
-        (_instance?.media3Active.value ?? false)) {
+        (_instance?.media3Active.value ?? false) ||
+        (_instance?.media3Opening.value ?? false)) {
       return _instance?.pause(notify: notify, isInterrupt: isInterrupt);
     }
     return null;
@@ -746,10 +758,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     try {
       _processing = true;
       _sourceGeneration++;
-      if (media3Active.value) {
+      if (_media3Playback != null) {
         await Media3Player.close();
         await _media3Playback;
       }
+      _media3Preparation = null;
       _profile5Mode = Pref.dolbyVisionProfile5Mode;
       final native =
           Platform.isAndroid &&
@@ -787,7 +800,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (_playerCount == 0) {
         return;
       }
-      if (native || useMedia3.value) await _videoPlayerController?.stop();
+      if (!native && useMedia3.value) await _videoPlayerController?.stop();
       useMedia3.value = native;
       _media3Position = seekTo ?? Duration.zero;
       if (native) {
@@ -795,6 +808,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         playerStatus = .paused;
         isBuffering.value = false;
         danmakuController?.clear();
+        if (!await _prepareMedia3()) return;
       } else {
         await _createVideoController(dataSource, seekTo, volume, rotate);
       }
@@ -848,6 +862,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   late final Rx<SuperResolutionType> superResolutionType =
       (isAnim ? Pref.superResolutionType : SuperResolutionType.disable).obs;
   Future<void> setShader([SuperResolutionType? type, NativePlayer? pp]) async {
+    if (useMedia3.value) return;
     if (type == null) {
       type = superResolutionType.value;
     } else {
@@ -1052,44 +1067,85 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     final resume = playerStatus.isPlaying || (_processing && _autoPlay);
     if (currentPosition > Duration.zero) _media3Position = currentPosition;
     useMedia3.value = true;
+    playerStatus = .paused;
+    isBuffering.value = false;
     try {
-      await _videoPlayerController?.stop();
-      if (generation != _sourceGeneration || _playerCount == 0) return;
-      playerStatus = .paused;
-      isBuffering.value = false;
-      _stopWakeLockTimer();
-      WakelockPlus.disable();
-      _disableAutoEnterPip();
-      _updatePlaybackState();
-      if (resume) await _playMedia3();
+      if (resume) {
+        await _playMedia3();
+      } else {
+        await _prepareMedia3();
+      }
     } catch (error, stackTrace) {
-      if (generation == _sourceGeneration && _playerCount > 0) {
+      if (_isCurrentSource(generation)) {
         _reportMedia3Error(error, stackTrace);
       }
     }
   }
 
-  Future<void> _playMedia3() =>
-      _media3Playback ??= _runMedia3().whenComplete(() {
-        _media3Playback = null;
-      });
+  bool _isCurrentSource(int generation) =>
+      generation == _sourceGeneration && _playerCount > 0;
+
+  Future<bool> _prepareMedia3() =>
+      _media3Preparation ??= _releaseMpvForMedia3(_sourceGeneration);
+
+  Future<bool> _releaseMpvForMedia3(int generation) async {
+    await _videoPlayerController?.stop();
+    if (!_isCurrentSource(generation)) return false;
+    // The native session owns audio focus and its screen-on lifecycle.
+    await audioSessionHandler?.setActive(false);
+    if (!_isCurrentSource(generation)) return false;
+    _stopWakeLockTimer();
+    WakelockPlus.disable();
+    _disableAutoEnterPip();
+    _updatePlaybackState();
+    return true;
+  }
+
+  Future<void> _playMedia3() {
+    if (_media3Playback case final playback?) return playback;
+    media3Opening.value = true;
+    playerStatus = .playing;
+    isBuffering.value = true;
+    return _media3Playback = _runMedia3().whenComplete(() {
+      _media3Playback = null;
+    });
+  }
+
+  void _flushMedia3Commands(int generation) {
+    final seek = _media3PendingSeek;
+    final speed = _media3PendingSpeed;
+    final playing = _media3PendingPlaying;
+    _media3PendingSeek = null;
+    _media3PendingSpeed = null;
+    _media3PendingPlaying = null;
+    // Invoke together before accepting another command, preserving channel order.
+    Future.wait<void>([
+      if (seek != null) Media3Player.seek(seek),
+      if (speed != null) Media3Player.setSpeed(speed),
+      if (playing != null) playing ? Media3Player.play() : Media3Player.pause(),
+    ]).catchError((Object error, StackTrace stackTrace) {
+      if (_isCurrentSource(generation)) {
+        _reportMedia3Error(error, stackTrace);
+      }
+      return <void>[];
+    });
+  }
+
+  void _updateMedia3Snapshot(
+    Media3PlaybackResult state, {
+    Duration? position,
+    double? speed,
+    bool heartbeat = true,
+  }) {
+    if (state.duration > Duration.zero) updateDuration(state.duration);
+    _playbackSpeed.value = speed ?? state.speed;
+    _updatePosition(position ?? state.position, heartbeat: heartbeat);
+  }
 
   Future<void> _runMedia3() async {
     final generation = _sourceGeneration;
-    media3Active.value = true;
     try {
-      // A track-detection handoff may still be unloading mpv during autoplay.
-      await _videoPlayerController?.stop();
-      if (generation != _sourceGeneration || _playerCount == 0) return;
-      // The embedded native player owns audio focus and its screen-on lifecycle.
-      await audioSessionHandler?.setActive(false);
-      _disableAutoEnterPip();
-      if (generation != _sourceGeneration || _playerCount == 0) return;
-      playerStatus = .paused;
-      isBuffering.value = false;
-      _stopWakeLockTimer();
-      WakelockPlus.disable();
-      _updatePlaybackState();
+      if (!await _prepareMedia3() || !_isCurrentSource(generation)) return;
       dataStatus.value = .loaded;
       final colors = ThemeUtils.theme.colorScheme;
       final result = await Media3Player.open(
@@ -1110,28 +1166,23 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
                     : colors.primary)
                 .toARGB32(),
         onState: (state, playing, buffering) {
-          if (generation != _sourceGeneration || _playerCount == 0) return;
-          _media3Position = state.position;
-          final seconds = state.position.inSeconds;
-          if (position.value != seconds) {
-            position.value = seconds;
-            makeHeartBeat(seconds);
-          }
-          if (state.duration > Duration.zero) updateDuration(state.duration);
-          _playbackSpeed.value = state.speed;
+          if (!_isCurrentSource(generation)) return;
+          final opening = media3Opening.value;
+          // A state event is emitted only after the native command target exists.
+          media3Active.value = true;
+          media3Opening.value = false;
           isBuffering.value = buffering;
-          final status = playing ? PlayerStatus.playing : PlayerStatus.paused;
+          final status = (_media3PendingPlaying ?? playing)
+              ? PlayerStatus.playing
+              : PlayerStatus.paused;
+          final seek = _media3PendingSeek;
+          final speed = _media3PendingSpeed;
+          if (opening) _flushMedia3Commands(generation);
           final changed = playerStatus != status;
           playerStatus = status;
+          _updateMedia3Snapshot(state, position: seek, speed: speed);
           _updatePlaybackState();
-          for (final listener in _positionListeners.toList()) {
-            listener(state.position);
-          }
-          if (changed) {
-            for (final listener in _statusListeners.toList()) {
-              listener(status);
-            }
-          }
+          if (changed || opening) _notifyStatusListeners(status);
         },
         onFullscreen: () => triggerFullScreen(status: !isFullScreen.value),
         onLock: (locked) => controlsLock.value = locked,
@@ -1143,15 +1194,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           }
         },
       );
-      if (generation != _sourceGeneration || _playerCount == 0) return;
-      _media3Position = result.position;
-      position.value = result.position.inSeconds;
-      if (result.duration > Duration.zero) updateDuration(result.duration);
-      _playbackSpeed.value = result.speed;
-      for (final listener in _positionListeners.toList()) {
-        listener(result.position);
-      }
+      if (!_isCurrentSource(generation)) return;
+      _media3PendingSeek = null;
+      _media3PendingSpeed = null;
+      _media3PendingPlaying = null;
+      _updateMedia3Snapshot(result, heartbeat: false);
       playerStatus = result.completed ? .completed : .paused;
+      isBuffering.value = false;
       makeHeartBeat(
         result.completed ? -1 : position.value,
         type: result.completed ? .completed : .status,
@@ -1163,24 +1212,28 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
       // Notify completion after the open future clears, so single-repeat can open again.
       Timer.run(() {
-        if (generation != _sourceGeneration || _playerCount == 0) return;
-        for (final listener in _statusListeners.toList()) {
-          listener(playerStatus);
-        }
+        if (!_isCurrentSource(generation)) return;
+        _notifyStatusListeners(playerStatus);
       });
     } catch (error, stackTrace) {
-      if (generation == _sourceGeneration && _playerCount > 0) {
+      if (_isCurrentSource(generation)) {
         _reportMedia3Error(error, stackTrace);
       }
     } finally {
       controlsLock.value = false;
+      media3Opening.value = false;
       media3Active.value = false;
+      _media3PendingSeek = null;
+      _media3PendingSpeed = null;
+      _media3PendingPlaying = null;
     }
   }
 
   void _reportMedia3Error(Object error, StackTrace stackTrace) {
     playerStatus = .paused;
+    isBuffering.value = false;
     dataStatus.value = .error;
+    _updatePlaybackState();
     Utils.reportError(error, stackTrace);
     SmartDialog.showToast(
       'Media3 播放失败：$error。请在音视频设置中切回软解，并重新打开视频',
@@ -1191,6 +1244,31 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   List<StreamSubscription>? _subscriptions;
   final Set<ValueChanged<Duration>> _positionListeners = {};
   final Set<ValueChanged<PlayerStatus>> _statusListeners = {};
+
+  void _notifyStatusListeners(PlayerStatus status) {
+    for (final listener in _statusListeners.toList()) {
+      listener(status);
+    }
+  }
+
+  void _updatePosition(
+    Duration value, {
+    bool heartbeat = true,
+    bool syncPlaybackStateAtStart = false,
+  }) {
+    if (useMedia3.value) _media3Position = value;
+    final seconds = value.inSeconds;
+    if (position.value != seconds) {
+      if (syncPlaybackStateAtStart && seconds == 0 && playerStatus.isPlaying) {
+        _updatePlaybackState(position: value);
+      }
+      position.value = seconds;
+      if (heartbeat) makeHeartBeat(seconds);
+    }
+    for (final listener in _positionListeners.toList()) {
+      listener(value);
+    }
+  }
 
   Timer? _wakeLockTimer;
 
@@ -1252,11 +1330,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           _updateIOSPip();
         }
 
-        for (final element in _statusListeners) {
-          element(playing ? .playing : .paused);
-        }
+        _notifyStatusListeners(playerStatus);
 
-        final seconds = videoPlayerController!.state.position.inSeconds;
+        final seconds = player.state.position.inSeconds;
         if (seconds != 0) {
           makeHeartBeat(seconds, type: .status);
         }
@@ -1269,9 +1345,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           playerStatus = .completed;
           _startWakeLockTimer();
 
-          for (final element in _statusListeners) {
-            element(.completed);
-          }
+          _notifyStatusListeners(.completed);
 
           makeHeartBeat(-1, type: .completed);
         }
@@ -1280,21 +1354,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       /// position
       stream.position.listen((Duration position) {
         if (useMedia3.value) return;
-        final posInSeconds = position.inSeconds;
-
-        if (posInSeconds != this.position.value) {
-          if (posInSeconds == 0 && playerStatus.isPlaying) {
-            _updatePlaybackState(position: position);
-          }
-
-          this.position.value = posInSeconds;
-
-          makeHeartBeat(posInSeconds);
-        }
-
-        for (final element in _positionListeners) {
-          element(position);
-        }
+        _updatePosition(position, syncPlaybackStateAtStart: true);
       }),
       stream.duration.listen((Duration duration) {
         if (useMedia3.value) return;
@@ -1394,12 +1454,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _heartDuration = position.inSeconds;
 
     if (useMedia3.value) {
-      if (media3Active.value) await Media3Player.seek(position);
-      _media3Position = position;
-      this.position.value = position.inSeconds;
-      for (final listener in _positionListeners.toList()) {
-        listener(position);
+      if (media3Opening.value) {
+        _media3PendingSeek = position;
+      } else if (media3Active.value) {
+        await Media3Player.seek(position);
       }
+      _updatePosition(position, heartbeat: false);
       return;
     }
 
@@ -1416,8 +1476,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Future<void> setPlaybackSpeed(double speed) async {
     lastPlaybackSpeed = playbackSpeed;
     if (useMedia3.value) {
-      if (media3Active.value) await Media3Player.setSpeed(speed);
       _playbackSpeed.value = speed;
+      if (media3Opening.value) {
+        _media3PendingSpeed = speed;
+      } else if (media3Active.value) {
+        await Media3Player.setSpeed(speed);
+      }
+      _updatePlaybackState();
       return;
     }
 
@@ -1442,11 +1507,17 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Future<void> play({bool repeat = false, bool hideControls = true}) async {
     if (_playerCount == 0) return;
     if (useMedia3.value) {
-      if (media3Active.value) {
-        if (repeat) await seekTo(Duration.zero);
-        return Media3Player.play();
+      if (repeat || isCompleted) await seekTo(Duration.zero);
+      if (media3Opening.value) {
+        _media3PendingPlaying = true;
+        playerStatus = .playing;
+        return;
       }
-      if (repeat || playerStatus.isCompleted) _media3Position = Duration.zero;
+      if (media3Active.value) {
+        await Media3Player.play();
+        playerStatus = .playing;
+        return;
+      }
       return _playMedia3();
     }
     // 播放时自动隐藏控制条
@@ -1465,7 +1536,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// 暂停播放
   Future<void> pause({bool notify = true, bool isInterrupt = false}) async {
-    if (media3Active.value) await Media3Player.pause();
+    if (useMedia3.value) {
+      if (media3Opening.value) {
+        _media3PendingPlaying = false;
+      } else if (media3Active.value) {
+        await Media3Player.pause();
+      }
+      playerStatus = .paused;
+      _updatePlaybackState();
+      return;
+    }
     await _videoPlayerController?.pause();
     playerStatus = .paused;
 
@@ -1607,9 +1687,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   // 双击播放、暂停
   Future<void> onDoubleTapCenter() async {
     if (!isLive && isCompleted) {
-      await videoPlayerController!.seek(Duration.zero);
-      await videoPlayerController!.play();
-    } else if (videoPlayerController!.state.playing) {
+      await play(repeat: true, hideControls: false);
+    } else if (playerStatus.isPlaying) {
       await pause();
     } else {
       await play(hideControls: false);
@@ -1901,7 +1980,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     _playerCount = 0;
     _sourceGeneration++;
-    if (media3Active.value) {
+    if (_media3Playback != null) {
       Media3Player.close().catchError((Object error, StackTrace stackTrace) {
         Utils.reportError(error, stackTrace);
       });
@@ -2027,6 +2106,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   int _screenshotState = 0;
   Future<void> takeScreenshot() async {
+    if (!hasMpvPlayer) return;
     if (_screenshotState > 0) return;
     _screenshotState = 1;
     SmartDialog.showToast('截图中');
